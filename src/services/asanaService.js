@@ -1,36 +1,79 @@
 const axios = require("axios");
 
-// ⚠️ FIX: /1/ emas, to‘g‘ri base URL
 const BASE_URL = "https://app.asana.com/api/1.0";
 
 const headers = {
     Authorization: `Bearer ${process.env.ASANA_PAT}`,
 };
 
-// in-memory cache
+// -------------------------
+// CACHE
+// -------------------------
 let cache = {
+    projects: [],
     sections: [],
     tasksBySection: {},
 };
 
-const todayStart = () => {
-    const d = new Date();
-    d.setHours(0, 0, 0, 0);
-    return d.toISOString();
+let isReady = false;
+
+// -------------------------
+// PROGRESS STATE 🔥
+// -------------------------
+let progress = {
+    total: 0,
+    current: 0,
 };
 
-// 🔥 MAIN REFRESH FUNCTION
+// -------------------------
+function getProgressPercent() {
+    if (progress.total === 0) return 0;
+    return Math.round((progress.current / progress.total) * 100);
+}
+
+// -------------------------
+async function getProjectInfo(projectId) {
+    const res = await axios.get(
+        `${BASE_URL}/projects/${projectId}`,
+        { headers }
+    );
+
+    return res.data.data;
+}
+
+// -------------------------
 async function refreshData() {
     try {
-        const projectIds = process.env.ASANA_PROJECT_IDS.split(",");
+        console.log("🚀 refreshData START");
 
+        isReady = false;
+
+        const projectIds = process.env.ASANA_PROJECT_IDS
+            .split(",")
+            .map(id => id.trim());
+
+        // ✅ progress step calculation
+        progress.total = projectIds.length * 3; // project + sections + tasks
+        progress.current = 0;
+
+        cache.projects = [];
         cache.sections = [];
         cache.tasksBySection = {};
 
         for (const projectId of projectIds) {
-            // -------------------------
-            // 1. GET SECTIONS
-            // -------------------------
+
+            // =====================
+            // PROJECT
+            // =====================
+            const project = await getProjectInfo(projectId);
+            cache.projects.push(project);
+
+            progress.current++; // 🔥 STEP UPDATE
+            console.log(`📁 PROJECT: ${project.name}`);
+
+            // =====================
+            // SECTIONS
+            // =====================
             const sectionsRes = await axios.get(
                 `${BASE_URL}/projects/${projectId}/sections`,
                 { headers }
@@ -39,57 +82,78 @@ async function refreshData() {
             const sections = sectionsRes.data.data;
             cache.sections.push(...sections);
 
-            // -------------------------
-            // 2. GET TASKS (WORKING WAY)
-            // -------------------------
+            progress.current++; // 🔥 STEP UPDATE
+
+            // =====================
+            // TASKS
+            // =====================
             const tasksRes = await axios.get(`${BASE_URL}/tasks`, {
                 headers,
                 params: {
                     project: projectId,
                     opt_fields:
-                        "name,completed,assignee.name,completed_at,memberships.section",
+                        "gid,name,completed,assignee.name,completed_at,memberships.section,custom_fields.name,custom_fields.display_value"
                 },
             });
 
-            const today = todayStart();
+            const tasksData = tasksRes.data.data;
 
-            const tasks = tasksRes.data.data.filter((t) => {
-                return (
-                    t.completed &&
-                    t.completed_at &&
-                    t.completed_at >= today
-                );
-            });
+            console.log(`🟢 TASKS: ${tasksData.length}`);
 
-            // -------------------------
-            // 3. GROUP BY SECTION
-            // -------------------------
-            for (const task of tasks) {
-                const sectionId =
-                    task.memberships?.[0]?.section?.gid;
+            progress.current++; // 🔥 STEP UPDATE
 
-                if (!sectionId) continue;
+            // =====================
+            // PROCESS TASKS
+            // =====================
+            for (const task of tasksData) {
 
-                if (!cache.tasksBySection[sectionId]) {
-                    cache.tasksBySection[sectionId] = [];
-                }
+                const responsible =
+                    task.custom_fields?.find(
+                        (f) => f.name === "Responsible"
+                    )?.display_value
+                    || task.assignee?.name
+                    || "Unassigned";
 
-                cache.tasksBySection[sectionId].push(task);
+                if (!task.memberships || task.memberships.length === 0) continue;
+
+                task.memberships.forEach((m) => {
+
+                    const sectionId = m.section?.gid;
+                    if (!sectionId) return;
+
+                    if (!cache.tasksBySection[sectionId]) {
+                        cache.tasksBySection[sectionId] = [];
+                    }
+
+                    // ❗ duplicate protection
+                    const exists = cache.tasksBySection[sectionId].some(
+                        t => t.gid === task.gid
+                    );
+
+                    if (!exists) {
+                        cache.tasksBySection[sectionId].push({
+                            ...task,
+                            responsible,
+                            project: {
+                                id: project.gid,
+                                name: project.name,
+                            },
+                        });
+                    }
+                });
             }
         }
 
-        console.log("✅ Asana refresh success");
+        isReady = true;
+
+        console.log("✅ REFRESH COMPLETE");
+
     } catch (err) {
-        console.error(
-            "❌ Refresh error:",
-            err.response?.status,
-            err.response?.data || err.message
-        );
+        console.error("❌ REFRESH ERROR");
+        console.error(err.response?.data || err.message);
     }
 }
 
-// -------------------------
-// GETTERS
 // -------------------------
 function getSections() {
     return cache.sections;
@@ -99,8 +163,20 @@ function getTasks(sectionId) {
     return cache.tasksBySection[sectionId] || [];
 }
 
+function getProjects() {
+    return cache.projects;
+}
+
+function isDataReady() {
+    return isReady;
+}
+
+// -------------------------
 module.exports = {
     refreshData,
     getSections,
     getTasks,
+    getProjects,
+    isDataReady,
+    getProgressPercent, // 🔥 NEW EXPORT
 };

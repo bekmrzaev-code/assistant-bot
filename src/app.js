@@ -7,21 +7,23 @@ const { refreshData } = require("./services/asanaService");
 
 const app = express();
 
-// Telegram bot
 const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, {
     polling: true,
 });
 
-// controllers attach
 botController(bot);
 
-// 🔄 real-time cache
+// 🔥 INITIAL LOAD (MUHIM)
+(async () => {
+    console.log("⏳ Loading data...");
+    await refreshData();
+    console.log("✅ Data ready");
+})();
+
+// 🔄 AUTO REFRESH
 setInterval(() => {
     refreshData();
 }, 30000);
-
-// initial load
-refreshData();
 
 app.get("/", (req, res) => {
     res.send("Bot is running...");

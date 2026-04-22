@@ -1,26 +1,60 @@
-function groupByAssignee(tasks) {
+function groupByResponsibles(tasks) {
     const result = {};
 
     tasks.forEach((task) => {
-        const name = task.assignee?.name || "Unassigned";
-        result[name] = (result[name] || 0) + 1;
+
+        // if (!task.completed) return;
+
+        const name = task.responsible || "Unassigned";
+
+        if (!result[name]) {
+            result[name] = [];
+        }
+
+        result[name].push(task);
     });
 
     return result;
 }
 
-function formatStats(name, count) {
+// =========================
+// FINAL REPORT (NEW)
+// =========================
+function formatStats(name, tasks) {
+
+    const total = tasks.length;
+    const done = tasks.filter(t => t.completed).length;
+    const pending = total - done;
+
+    const percent = total === 0 ? 0 : Math.round((done / total) * 100);
+
     const date = new Date().toLocaleDateString("en-GB", {
-        day: "numeric",
+        day: "2-digit",
         month: "long",
+        year: "numeric",
     });
 
-    return `${name} ->
-tasks: ${count}
-date: ${date}`;
-}
+    return `
+📊 RESPONSIBLE REPORT
 
+👤 Name: ${name}
+
+━━━━━━━━━━━━━━
+📌 Tasks: ${total}
+✅ Done: ${done}
+⏳ Pending: ${pending}
+📈 Progress: ${percent}%
+
+━━━━━━━━━━━━━━
+📅 Date: ${date}
+
+💡 Status: ${percent >= 80 ? "🔥 Excellent" :
+            percent >= 50 ? "⚡ Good" :
+                "⚠️ Needs attention"
+        }
+`;
+}
 module.exports = {
-    groupByAssignee,
+    groupByResponsibles,
     formatStats,
 };
