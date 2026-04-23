@@ -6,6 +6,11 @@ const headers = {
     Authorization: `Bearer ${process.env.ASANA_PAT}`,
 };
 
+// ⏱️ Axios timeout configuratsiyasi
+const axiosInstance = axios.create({
+    timeout: 10000,  // 10 sekund timeout
+});
+
 // -------------------------
 // CACHE
 // -------------------------
@@ -33,7 +38,7 @@ function getProgressPercent() {
 
 // -------------------------
 async function getProjectInfo(projectId) {
-    const res = await axios.get(
+    const res = await axiosInstance.get(
         `${BASE_URL}/projects/${projectId}`,
         { headers }
     );
@@ -44,13 +49,15 @@ async function getProjectInfo(projectId) {
 // -------------------------
 async function refreshData() {
     try {
-        console.log("🚀 refreshData START");
+        console.log("🚀 refreshData START at", new Date().toISOString());
 
         isReady = false;
 
         const projectIds = process.env.ASANA_PROJECT_IDS
             .split(",")
             .map(id => id.trim());
+
+        console.log("📁 Projects to load:", projectIds.length);
 
         // ✅ progress step calculation
         progress.total = projectIds.length * 3; // project + sections + tasks
@@ -65,16 +72,18 @@ async function refreshData() {
             // =====================
             // PROJECT
             // =====================
+            console.log(`📡 Fetching project ${projectId}...`);
             const project = await getProjectInfo(projectId);
             cache.projects.push(project);
 
             progress.current++; // 🔥 STEP UPDATE
-            console.log(`📁 PROJECT: ${project.name}`);
+            console.log(`✅ PROJECT: ${project.name} (${progress.current}/${progress.total})`);
 
             // =====================
             // SECTIONS
             // =====================
-            const sectionsRes = await axios.get(
+            console.log(`📡 Fetching sections for ${project.name}...`);
+            const sectionsRes = await axiosInstance.get(
                 `${BASE_URL}/projects/${projectId}/sections`,
                 { headers }
             );
@@ -83,11 +92,13 @@ async function refreshData() {
             cache.sections.push(...sections);
 
             progress.current++; // 🔥 STEP UPDATE
+            console.log(`✅ SECTIONS: ${sections.length} (${progress.current}/${progress.total})`);
 
             // =====================
             // TASKS
             // =====================
-            const tasksRes = await axios.get(`${BASE_URL}/tasks`, {
+            console.log(`📡 Fetching tasks for ${project.name}...`);
+            const tasksRes = await axiosInstance.get(`${BASE_URL}/tasks`, {
                 headers,
                 params: {
                     project: projectId,
@@ -98,7 +109,7 @@ async function refreshData() {
 
             const tasksData = tasksRes.data.data;
 
-            console.log(`🟢 TASKS: ${tasksData.length}`);
+            console.log(`✅ TASKS: ${tasksData.length} (${progress.current}/${progress.total})`);
 
             progress.current++; // 🔥 STEP UPDATE
 
@@ -150,7 +161,12 @@ async function refreshData() {
 
     } catch (err) {
         console.error("❌ REFRESH ERROR");
-        console.error(err.response?.data || err.message);
+        console.error("Error message:", err.message);
+        console.error("Error code:", err.code);
+        console.error("Status:", err.response?.status);
+        console.error("Data:", err.response?.data);
+        console.error("Full error:", err);
+        isReady = false;
     }
 }
 

@@ -12,75 +12,96 @@ const {
 
 const session = {};
 
-// =========================
-// MAIN
-// =========================
 module.exports = (bot) => {
+
+    console.log("🤖 [botController] Initializing bot handlers...");
 
     bot.onText(/\/start/, async (msg) => {
         const chatId = msg.chat.id;
+        
+        console.log("\n🟢 [START] /start command received from", chatId);
+        console.log("🟢 [START] Message object:", JSON.stringify(msg, null, 2).substring(0, 200));
 
-        // =========================
-        // LOADING (REAL PROGRESS)
-        // =========================
-        if (!isDataReady()) {
+        try {
+            // =========================
+            // LOADING (REAL PROGRESS)
+            // =========================
+            if (!isDataReady()) {
 
-            const loadingMsg = await bot.sendMessage(
-                chatId,
-                "⏳ Server yuklanmoqda...\n\n⬜⬜⬜⬜⬜⬜⬜⬜⬜⬜ 0%"
-            );
+                console.log("🟡 [START] Data not ready, showing loading...");
 
-            const interval = setInterval(async () => {
+                const loadingMsg = await bot.sendMessage(
+                    chatId,
+                    "⏳ Server yuklanmoqda...\n\n⬜⬜⬜⬜⬜⬜⬜⬜⬜⬜ 0%"
+                );
+                
+                console.log("✅ [START] Loading message sent");
 
-                const percent = getProgressPercent();
-                const bar = buildProgress(percent);
+                const interval = setInterval(async () => {
 
-                try {
-                    await bot.editMessageText(
-                        `⏳ Server yuklanmoqda...\n\n${bar} ${percent}%`,
-                        {
-                            chat_id: chatId,
-                            message_id: loadingMsg.message_id,
-                        }
-                    );
-                } catch (e) { }
+                    const percent = getProgressPercent();
+                    const bar = buildProgress(percent);
 
-                // ✅ READY BO'LGANDA STOP + UI
-                if (isDataReady()) {
-                    clearInterval(interval);
+                    try {
+                        await bot.editMessageText(
+                            `⏳ Server yuklanmoqda...\n\n${bar} ${percent}%`,
+                            {
+                                chat_id: chatId,
+                                message_id: loadingMsg.message_id,
+                            }
+                        );
+                    } catch (e) { 
+                        console.log("📊 [START] Progress update error (normal):", e.message);
+                    }
 
-                    await bot.editMessageText(
-                        `✅ Yuklandi!\n\n${buildProgress(100)} 100%`,
-                        {
-                            chat_id: chatId,
-                            message_id: loadingMsg.message_id,
-                        }
-                    );
+                    // ✅ READY BO'LGANDA STOP + UI
+                    if (isDataReady()) {
+                        clearInterval(interval);
+                        
+                        console.log("✅ [START] Data is ready!");
 
-                    const message = await showProjects(bot, chatId);
+                        await bot.editMessageText(
+                            `✅ Yuklandi!\n\n${buildProgress(100)} 100%`,
+                            {
+                                chat_id: chatId,
+                                message_id: loadingMsg.message_id,
+                            }
+                        );
 
-                    session[chatId] = {
-                        messageId: message.message_id,
-                        stack: ["projects"],
-                        view: "projects",
-                    };
-                }
+                        const message = await showProjects(bot, chatId);
 
-            }, 500);
+                        session[chatId] = {
+                            messageId: message.message_id,
+                            stack: ["projects"],
+                            view: "projects",
+                        };
+                    }
 
-            return;
+                }, 500);
+
+                return;
+            }
+
+            // =========================
+            // READY DIRECT LOAD
+            // =========================
+            console.log("🟢 [START] Data ready, showing projects directly");
+            const message = await showProjects(bot, chatId);
+
+            session[chatId] = {
+                messageId: message.message_id,
+                stack: ["projects"],
+                view: "projects",
+            };
+        } catch (error) {
+            console.error("❌ [START] ERROR:", error.message);
+            console.error("❌ [START] Stack:", error.stack);
+            try {
+                await bot.sendMessage(chatId, "❌ Xatolik yuz berdi. Qayta urinib ko'ring.");
+            } catch (sendError) {
+                console.error("❌ [START] Could not send error message:", sendError.message);
+            }
         }
-
-        // =========================
-        // READY DIRECT LOAD
-        // =========================
-        const message = await showProjects(bot, chatId);
-
-        session[chatId] = {
-            messageId: message.message_id,
-            stack: ["projects"],
-            view: "projects",
-        };
     });
 
     // =========================
@@ -92,10 +113,17 @@ module.exports = (bot) => {
         const data = query.data;
         const messageId = query.message.message_id;
 
+        console.log("\n🔘 [CALLBACK] Received from", chatId, "data:", data);
+
         const state = session[chatId];
-        if (!state) return;
+        if (!state) {
+            console.warn("⚠️ [CALLBACK] No session found for chatId:", chatId);
+            return;
+        }
 
         try {
+
+            console.log("🔘 [CALLBACK] Current view:", state.view, "Stack:", state.stack);
 
             // =====================
             // BACK
@@ -221,33 +249,51 @@ Name: ${name}
 // =========================
 async function showProjects(bot, chatId, messageId = null, edit = false) {
 
-    const projects = getProjects();
+    try {
+        console.log("\n📊 [showProjects] Starting, chatId:", chatId);
+        
+        const projects = getProjects();
+        console.log("📊 [showProjects] Projects count:", projects.length);
 
-    const text =
-        `🏠 DASHBOARD
+        if (projects.length === 0) {
+            console.warn("⚠️ [showProjects] No projects found!");
+        }
+
+        const text =
+            `🏠 DASHBOARD
 
 📊 Total Boards: ${projects.length}
 
 👇 Select Board`;
 
-    const keyboard = projects.map(p => [
-        {
-            text: `📁 ${p.name}`,
-            callback_data: `project_${p.gid}`,
-        },
-    ]);
+        const keyboard = projects.map(p => [
+            {
+                text: `📁 ${p.name}`,
+                callback_data: `project_${p.gid}`,
+            },
+        ]);
 
-    if (edit && messageId) {
-        return bot.editMessageText(text, {
-            chat_id: chatId,
-            message_id: messageId,
+        console.log("📊 [showProjects] Sending message to", chatId);
+
+        if (edit && messageId) {
+            return bot.editMessageText(text, {
+                chat_id: chatId,
+                message_id: messageId,
+                reply_markup: { inline_keyboard: keyboard },
+            });
+        }
+
+        const result = await bot.sendMessage(chatId, text, {
             reply_markup: { inline_keyboard: keyboard },
         });
+        
+        console.log("✅ [showProjects] Message sent successfully, message_id:", result.message_id);
+        return result;
+    } catch (error) {
+        console.error("❌ [showProjects] Error:", error.message);
+        console.error("❌ [showProjects] Stack:", error.stack);
+        throw error;
     }
-
-    return bot.sendMessage(chatId, text, {
-        reply_markup: { inline_keyboard: keyboard },
-    });
 }
 
 // =========================
